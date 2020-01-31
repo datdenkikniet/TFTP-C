@@ -72,6 +72,7 @@ typedef struct {
 
 typedef struct {
     TftpPacket *packet;
+    uint16_t* errorCode;
     char *message;
 } TftpPacketError;
 

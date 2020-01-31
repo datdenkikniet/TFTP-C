@@ -159,8 +159,9 @@ int tftp_parse_error(TftpPacket *packet, TftpPacketError *error) {
     } else if (packet->endianness == NETWORK) {
         return -2;
     } else {
-        error->message = (char *) packet->content;
-        int errMsgEndIndex = tftp_test_string(error->message, packet->contentsLength);
+        error->errorCode = (uint16_t *) packet->content;
+        error->message = (char *) packet->content + 2;
+        int errMsgEndIndex = tftp_test_string(error->message, packet->contentsLength - 2);
         if (errMsgEndIndex == -1) {
             return -3;
         }
@@ -184,10 +185,10 @@ int tftp_serialize(TftpPacket *packet, int dataLength) {
 
         packet->contentsLength = 0;
 
-        if (opcode == TFTP_OPCODE_ACKNOWLEDGEMENT || opcode == TFTP_OPCODE_DATA) {
-            uint8_t blkLs = packet->content[1];
+        if (opcode == TFTP_OPCODE_ACKNOWLEDGEMENT || opcode == TFTP_OPCODE_DATA || opcode == TFTP_OPCODE_ERROR) {
+            uint8_t numLs = packet->content[1];
             packet->content[1] = packet->content[0];
-            packet->content[0] = blkLs;
+            packet->content[0] = numLs;
             packet->contentsLength += 2;
             if (opcode == TFTP_OPCODE_DATA) {
                 packet->contentsLength += dataLength;

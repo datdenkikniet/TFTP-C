@@ -44,14 +44,24 @@ int main(int argc, char **argv) {
     server.sin_port = htons(5555);
     bind(sockfd, (struct sockaddr *) &server, sockSize);
 
-    int fd;
-
     int rec = recvfrom(sockfd, recvBuffer, 514, 0, (struct sockaddr *) &client, &sockSize);
     TftpPacket pack = {};
     tftp_parse_packet(recvBuffer, 514, rec, &pack);
 
     if (*pack.opcode == TFTP_OPCODE_READ_REQUEST) {
-        TftpPacketReadRequest req = {};
+
+
+    } else if (*pack.opcode == TFTP_OPCODE_WRITE_REQUEST) {
+
+    } else {
+
+    }
+
+    return 0;
+}
+
+/*
+ *      TftpPacketReadRequest req = {};
         tftp_parse_rrq(&pack, &req);
 
         fd = open(req.filename, O_RDONLY);
@@ -75,8 +85,4 @@ int main(int argc, char **argv) {
         int sent = sendto(sockfd, packet.buffer, packet.length, 0, (const struct sockaddr *) &client, sockSize);
 
         printf("Sent: %d\n", sent);
-
-    }
-
-    return 0;
-}
+ */
