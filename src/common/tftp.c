@@ -33,7 +33,7 @@
 
 const char *TFTP_BLOCKSIZE_STRING = "blksize";
 const char *TFTP_TIMEOUT_STRING = "timeout";
-const char *TFTP_WINDOW_SIZE_STRING = "windowsize";
+// const char *TFTP_WINDOW_SIZE_STRING = "windowsize";
 
 const char *TFTP_ERROR_ENOENT_STRING = "No such file.";
 const char *TFTP_ERROR_ACCESS_VIOLATION_STRING = "Access violation";
@@ -52,6 +52,49 @@ char *tftp_test_string(char *possible_string_start, int max) {
         }
     }
     return NULL;
+}
+
+void tftp_init_transmission(tftp_transmission *transmission, uint16_t block_size) {
+    transmission->socket = -1;
+    transmission->original_socket = -1;
+    transmission->client_addr_size = 0;
+    transmission->client_addr = NULL;
+    transmission->rx_size = 4 + block_size;
+    transmission->rx_buffer = malloc(4 + block_size);
+    transmission->tx_size = 4 + block_size;
+    transmission->tx_buffer = malloc(4 + block_size);
+}
+
+void tftp_free_transmission(tftp_transmission *transmission) {
+    free(transmission->rx_buffer);
+    free(transmission->tx_buffer);
+}
+
+void tftp_init_error(tftp_packet_error *packet) {
+    packet->opcode = TFTP_OPCODE_ERROR;
+    packet->error_code = TFTP_ERROR_UNDEF;
+    packet->error_message_length = 0;
+    memset(packet->message, 0, sizeof(packet->message));
+}
+
+void tftp_init_oack(tftp_packet_optionack *optionack) {
+    optionack->opcode = TFTP_OPCODE_OACK;
+    optionack->has_window_size = 0;
+    optionack->has_timeout = 0;
+    optionack->has_block_size = 0;
+}
+
+void tftp_init_data(tftp_packet_data *data) {
+    data->opcode = TFTP_OPCODE_DATA;
+    data->block_num = 0;
+    data->buffer_length = 0;
+    data->data_size = 0;
+    data->buffer = NULL;
+}
+
+void tftp_init_ack(tftp_packet_ack *ack) {
+    ack->opcode = TFTP_OPCODE_ACKNOWLEDGEMENT;
+    ack->block_num = 0;
 }
 
 int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data, const uint16_t data_length) {
@@ -151,6 +194,10 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
         }
     }
 
+    if (!request->has_block_size) {
+        request->block_size = 512;
+    }
+
     return TFTP_SUCCESS;
 }
 
@@ -166,9 +213,9 @@ int tftp_parse_option(char *possible_option, int max_length, char **option_end_p
             return TFTP_OPTION_TIMEOUT;
         } else if (strcmp(option_start, TFTP_BLOCKSIZE_STRING) == 0) {
             return TFTP_OPTION_BLOCKSIZE;
-        } else if (strcmp(option_start, TFTP_WINDOW_SIZE_STRING) == 0) {
+        } /* else if (strcmp(option_start, TFTP_WINDOW_SIZE_STRING) == 0) {
             return TFTP_OPTION_WINDOW_SIZE;
-        }
+        } */
     }
     return TFTP_OPTION_UNKNOWN;
 }
@@ -189,29 +236,13 @@ long tftp_parse_ascii_number(char *data, int max_length, char **value_end_ptr) {
     return value;
 }
 
-void tftp_init_transmission(tftp_transmission *transmission, uint16_t block_size) {
-    transmission->socket = -1;
-    transmission->original_socket = -1;
-    transmission->client_addr_size = 0;
-    transmission->client_addr = NULL;
-    transmission->rx_size = 4 + block_size;
-    transmission->rx_buffer = malloc(4 + block_size);
-    transmission->tx_size = 4 + block_size;
-    transmission->tx_buffer = malloc(4 + block_size);
-}
-
-void tftp_init_error(tftp_packet_error *packet) {
-    packet->opcode = TFTP_OPCODE_ERROR;
-    packet->error_code = TFTP_ERROR_UNDEF;
-    packet->error_message_length = 0;
-    memset(packet->message, 0, sizeof(packet->message));
-}
-
-void tftp_init_oack(tftp_packet_optionack *optionack) {
-    optionack->opcode = TFTP_OPCODE_OACK;
-    optionack->has_window_size = 0;
-    optionack->has_timeout = 0;
-    optionack->has_block_size = 0;
+long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long value) {
+    uint8_t *end_ptr = start_ptr;
+    strcpy(end_ptr, option_name);
+    end_ptr += strlen(option_name) + 1;
+    int printed = sprintf(end_ptr, "%d", value);
+    end_ptr += printed + 1;
+    return end_ptr - start_ptr;
 }
 
 int tftp_set_error_message(tftp_packet_error *error, const char *message) {
@@ -225,17 +256,29 @@ int tftp_set_error_message(tftp_packet_error *error, const char *message) {
     }
 }
 
-int tftp_send_error(tftp_transmission transmission, tftp_packet_error *error, int from_original_socket) {
+int tftp_set_error(tftp_packet_error *error, int error_number){
+#define HANDLE_ERROR(errnum) if (error_number == errnum) { tftp_set_error_message(error, errnum##_STRING); error->error_code = error_number;}
+
+    HANDLE_ERROR(TFTP_ERROR_ENOENT)
+    HANDLE_ERROR(TFTP_ERROR_ACCESS_VIOLATION)
+    HANDLE_ERROR(TFTP_ERROR_ILLEGAL_OP)
+    HANDLE_ERROR(TFTP_ERROR_DISK_FULL)
+    HANDLE_ERROR(TFTP_ERROR_FILE_EXISTS)
+    HANDLE_ERROR(TFTP_ERROR_NO_SUCH_USER)
+
+}
+
+int tftp_send_error(tftp_transmission *transmission, tftp_packet_error *error, int from_original_socket) {
     int socket;
     if (from_original_socket) {
-        socket = transmission.original_socket;
+        socket = transmission->original_socket;
     } else {
-        socket = transmission.socket;
+        socket = transmission->socket;
     }
     int error_message_length = error->error_message_length == 0 ? 1 : error->error_message_length;
     error->opcode = htons(error->opcode);
-    int sent = sendto(socket, error, 4 + error_message_length, 0, transmission.client_addr,
-                      transmission.client_addr_size);
+    int sent = sendto(socket, error, 4 + error_message_length, 0, transmission->client_addr,
+                      transmission->client_addr_size);
 
     if (sent < 0 && !from_original_socket) {
         tftp_send_error(transmission, error, 1);
@@ -249,10 +292,10 @@ int tftp_request_has_options(tftp_packet_request request) {
     return request.has_block_size || request.has_timeout || request.has_window_size;
 }
 
-int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optionack) {
+int tftp_send_oack(tftp_transmission *transmission, tftp_packet_optionack optionack) {
 
-    uint8_t *start_ptr = transmission.tx_buffer;
-    tftp_packet_request req = transmission.request;
+    uint8_t *start_ptr = transmission->tx_buffer;
+    tftp_packet_request req = transmission->request;
 
     *(start_ptr++) = optionack.opcode >> 8u & 0xFF;
     *(start_ptr++) = optionack.opcode & 0xff;
@@ -260,30 +303,60 @@ int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optiona
     if (req.has_block_size) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_BLOCKSIZE_STRING, optionack.block_size);
     }
-    if (req.has_window_size) {
+    /* if (req.has_window_size) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_WINDOW_SIZE_STRING, optionack.window_size);
 
-    }
+    } */
     if (req.has_timeout) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_TIMEOUT_STRING, optionack.timeout);
     }
 
-    long length = start_ptr - transmission.tx_buffer;
-    int sent = sendto(transmission.socket, transmission.tx_buffer, length, 0, transmission.client_addr,
-                      transmission.client_addr_size);
-    if (sent < 0){
-        printf("Errno: %d, length: %li\n", errno, length);
+    long length = start_ptr - transmission->tx_buffer;
+    int sent = sendto(transmission->socket, transmission->tx_buffer, length, 0, transmission->client_addr,
+                      transmission->client_addr_size);
+    if (sent < 0) {
         return TFTP_SEND_FAILED;
     }
-    printf("Sent oack\n");
     return TFTP_SUCCESS;
 }
 
-long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long value){
-    uint8_t *end_ptr = start_ptr;
-    strcpy(end_ptr, option_name);
-    end_ptr += strlen(option_name) + 1;
-    int printed = sprintf(end_ptr, "%d", value);
-    end_ptr += printed + 1;
-    return end_ptr - start_ptr;
+
+int tftp_send_data(tftp_transmission *transmission, tftp_packet_data *data, int copy_buffer) {
+
+    uint8_t *start_ptr = transmission->tx_buffer;
+    uint16_t data_size = data->data_size;
+
+    *(start_ptr++) = data->opcode >> 8u & 0xFF;
+    *(start_ptr++) = data->opcode & 0xff;
+
+    *(start_ptr++) = data->block_num >> 8u & 0xFF;
+    *(start_ptr++) = data->block_num & 0xff;
+
+    if (copy_buffer) {
+        memcpy(start_ptr, data->buffer, data_size);
+    }
+
+    int sent = sendto(transmission->socket, transmission->tx_buffer, 4 + data_size, 0, transmission->client_addr,
+                      transmission->client_addr_size);
+    if (sent < 0) {
+        return TFTP_SEND_FAILED;
+    }
+    return TFTP_SUCCESS;
 }
+
+int tftp_receive_ack(tftp_transmission *transmission, tftp_packet_ack *ack) {
+    int received = recvfrom(transmission->socket, transmission->rx_buffer, 4, 0, transmission->client_addr,
+                            &transmission->client_addr_size);
+    if (received != 4) {
+        return TFTP_RECV_FAILED;
+    }
+    uint16_t opcode = (transmission->rx_buffer[0] << 8u) + (transmission->rx_buffer[1]);
+    uint16_t block_num = (transmission->rx_buffer[2] << 8u) + (transmission->rx_buffer[3]);
+
+    if (opcode != TFTP_OPCODE_ACKNOWLEDGEMENT) {
+        return TFTP_INVALID_OPCODE;
+    }
+    ack->block_num = block_num;
+    return TFTP_SUCCESS;
+}
+

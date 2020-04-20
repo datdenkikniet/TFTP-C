@@ -26,6 +26,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#import <unistd.h>
 #include <errno.h>
 #include "../common/tftp.h"
 
@@ -43,8 +44,10 @@ int running = 1;
 char path[512];
 
 int main(int argc, char **argv) {
-    strcpy(path, argv[1]);
     signal(SIGINT, sighandler);
+    signal(SIGTERM, sighandler);
+
+    strcpy(path, argv[1]);
     int sockfd;
     socklen_t sockAddrSize = sizeof(struct sockaddr_in);
     struct sockaddr_in server, client;
@@ -73,11 +76,8 @@ int main(int argc, char **argv) {
             printf("Received request from %s:%d, opcode: %d, filename: %s, mode: %s\n", inet_ntoa(client.sin_addr),
                    ntohs(client.sin_port), request_packet.opcode, request_packet.filename, request_packet.mode);
             tftp_transmission transmission;
-            if (request_packet.has_block_size) {
-                tftp_init_transmission(&transmission, request_packet.block_size);
-            } else {
-                tftp_init_transmission(&transmission, 512);
-            }
+            tftp_init_transmission(&transmission, request_packet.block_size);
+
             transmission.request = request_packet;
             transmission.client_addr_size = sizeof(client);
             transmission.client_addr = malloc(transmission.client_addr_size);
@@ -105,6 +105,16 @@ void handle_read_request(tftp_transmission transmission) {
     struct sockaddr_in server;
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct timeval timeout;
+    timeout.tv_usec = 0;
+    if (transmission.request.has_timeout) {
+        timeout.tv_sec = transmission.request.timeout;
+    } else {
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 500000;
+    }
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout, sizeof(struct timeval));
+
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
 
@@ -118,30 +128,37 @@ void handle_read_request(tftp_transmission transmission) {
         tftp_packet_error error;
         tftp_init_error(&error);
         tftp_set_error_message(&error, "Could not create new socket.");
-        tftp_send_error(transmission, &error, 1);
+        tftp_send_error(&transmission, &error, 1);
     }
 
     transmission.socket = sockfd;
 
     char actualPath[512];
     strcpy(actualPath, path);
-    if (actualPath[strlen(actualPath) - 1] != '/'){
+    if (actualPath[strlen(actualPath) - 1] != '/') {
         strcat(actualPath, "/");
     }
+
     strcat(actualPath, transmission.request.filename);
-    int fd = open(actualPath, O_RDONLY);
-    if (fd < 0) {
+
+    int file_descriptor = open(actualPath, O_RDONLY);
+    if (file_descriptor < 0) {
         tftp_packet_error error;
         tftp_init_error(&error);
         if (errno == ENOENT) {
             error.error_code = TFTP_ERROR_ENOENT;
             tftp_set_error_message(&error, TFTP_ERROR_ENOENT_STRING);
-        } else {
-
+        } else if (errno == EACCES) {
+            error.error_code = TFTP_ERROR_ACCESS_VIOLATION;
+            tftp_set_error_message(&error, TFTP_ERROR_ACCESS_VIOLATION_STRING);
         }
-        tftp_send_error(transmission, &error, 0);
+        tftp_send_error(&transmission, &error, 0);
     }
 
+    tftp_packet_ack ack;
+    tftp_init_ack(&ack);
+    uint16_t block_num = 0;
+    int oack_error = 0;
     if (tftp_request_has_options(transmission.request)) {
         tftp_packet_optionack optionack;
         tftp_init_oack(&optionack);
@@ -151,7 +168,65 @@ void handle_read_request(tftp_transmission transmission) {
         optionack.timeout = transmission.request.timeout;
         optionack.has_window_size = transmission.request.has_window_size;
         optionack.window_size = transmission.request.window_size;
-        tftp_send_oack(transmission, optionack);
+        tftp_send_oack(&transmission, optionack);
+        int receive = tftp_receive_ack(&transmission, &ack);
+        if (receive != TFTP_SUCCESS) {
+            tftp_packet_error error;
+            tftp_init_error(&error);
+            tftp_set_error(&error, TFTP_ERROR_ILLEGAL_OP);
+            oack_error = 1;
+        }
+        block_num++;
     }
+    if (!oack_error) {
+        tftp_packet_data data;
+        tftp_init_data(&data);
+
+        data.buffer = transmission.tx_buffer + 4;
+        data.buffer_length = transmission.request.block_size;
+
+        int retransmissions = 0;
+        int is_retransmission = 0;
+        int read_bytes = -1;
+
+        do {
+            if (!is_retransmission) {
+                read_bytes = read(file_descriptor, data.buffer, data.buffer_length);
+            }
+            data.block_num = block_num;
+            data.data_size = read_bytes;
+            tftp_send_data(&transmission, &data, 0);
+
+            int receive = tftp_receive_ack(&transmission, &ack);
+
+            if (receive == TFTP_INVALID_OPCODE) {
+                tftp_packet_error error;
+                tftp_init_error(&error);
+                tftp_set_error(&error, TFTP_ERROR_ILLEGAL_OP);
+                tftp_send_error(&transmission, &error, 0);
+                break;
+            }
+
+            if (receive == TFTP_RECV_FAILED) {
+                if (retransmissions == 5) {
+                    tftp_packet_error error;
+                    tftp_init_error(&error);
+                    tftp_set_error_message(&error, "Receive timed out.");
+                    tftp_send_error(&transmission, &error, 0);
+                    break;
+                }
+                retransmissions++;
+                is_retransmission = 1;
+                continue;
+            }
+            if (receive == TFTP_SUCCESS) {
+                block_num++;
+                is_retransmission = 0;
+                retransmissions = 0;
+            }
+        } while (read_bytes == transmission.request.block_size);
+    }
+    close(sockfd);
+    tftp_free_transmission(&transmission);
 }
 

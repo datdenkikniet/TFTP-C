@@ -35,6 +35,7 @@
 #define TFTP_INVALID_NUMBER -6
 #define TFTP_STRING_TOO_LONG -7
 #define TFTP_SEND_FAILED -8
+#define TFTP_RECV_FAILED -9
 
 // Specification definitions
 #define TFTP_OPTION_INVALID -2
@@ -63,7 +64,7 @@
 
 extern const char *TFTP_BLOCKSIZE_STRING;
 extern const char *TFTP_TIMEOUT_STRING;
-extern const char *TFTP_WINDOW_SIZE_STRING;
+// extern const char *TFTP_WINDOW_SIZE_STRING;
 
 extern const char *TFTP_ERROR_ENOENT_STRING;
 extern const char *TFTP_ERROR_ACCESS_VIOLATION_STRING;
@@ -92,13 +93,15 @@ typedef struct {
 typedef struct {
     uint16_t opcode;
 
-    // The actual length of the data buffer (= block size)
-    uint16_t data_length;
+    uint16_t block_num;
 
-    // The used length of the data buffer
+    // The actual length of the buffer (= block size)
+    uint16_t buffer_length;
+
+    // The length of the data in the buffer
     uint16_t data_size;
 
-    uint8_t *data;
+    uint8_t *buffer;
 } tftp_packet_data;
 
 typedef struct {
@@ -136,7 +139,7 @@ typedef struct {
     int socket;
 
     struct sockaddr *client_addr;
-    int client_addr_size;
+    unsigned int client_addr_size;
 
     tftp_packet_request request;
 
@@ -150,6 +153,18 @@ typedef struct {
 
 char *tftp_test_string(char *possible_string_start, int max_length);
 
+void tftp_init_transmission(tftp_transmission *transmission, uint16_t block_size);
+
+void tftp_free_transmission(tftp_transmission *transmission);
+
+void tftp_init_oack(tftp_packet_optionack *optionack);
+
+void tftp_init_error(tftp_packet_error *error);
+
+void tftp_init_data(tftp_packet_data *data);
+
+void tftp_init_ack(tftp_packet_ack *ack);
+
 int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data, uint16_t data_length);
 
 int tftp_parse_option(char *possible_option, int max_length, char **option_end_ptr);
@@ -160,16 +175,15 @@ long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long 
 
 int tftp_request_has_options(tftp_packet_request request);
 
-void tftp_init_transmission(tftp_transmission *transmission, uint16_t block_size);
-
-void tftp_init_oack(tftp_packet_optionack *optionack);
-
-void tftp_init_error(tftp_packet_error *error);
-
 int tftp_set_error_message(tftp_packet_error *error, const char *message);
 
-int tftp_send_error(tftp_transmission transmission, tftp_packet_error *error, int from_original_socket);
+int tftp_set_error(tftp_packet_error *error, int error_number);
 
-int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optionack);
+int tftp_send_error(tftp_transmission *transmission, tftp_packet_error *error, int from_original_socket);
 
+int tftp_send_oack(tftp_transmission *transmission, tftp_packet_optionack optionack);
+
+int tftp_send_data(tftp_transmission *transmission, tftp_packet_data *data, int copy_buffer);
+
+int tftp_receive_ack(tftp_transmission *transmission, tftp_packet_ack *ack);
 #endif //TFTPSERVER_PACKET_H
