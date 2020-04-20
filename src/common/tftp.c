@@ -18,186 +18,175 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  
  */
+#define DEBUG
+#ifdef DEBUG
+#include <stdio.h>
+#endif
 
-#include <stddef.h>
+#include <string.h>
 #include <stdlib.h>
+#include <netinet/in.h>
+#include <errno.h>
 #include "tftp.h"
 
-int tftp_test_string(const char *possibleString, int max) {
-    int stringEndIndex = 0;
-    while (stringEndIndex < max
-           && *(possibleString + stringEndIndex) != 0) {
-        stringEndIndex++;
-    }
-    if (stringEndIndex == max) {
-        return -1;
-    }
-    return stringEndIndex;
-}
+const char *TFTP_BLOCKSIZE_STRING = "blksize";
+const char *TFTP_TIMEOUT_STRING = "timeout";
+const char *TFTP_WINDOW_SIZE_STRING = "windowsize";
 
-int tftp_init_packet(TftpPacket *packet, uint16_t opcode, uint8_t *buffer, int bufferSize) {
-    packet->buffer = buffer;
-    packet->content = buffer + 2;
-    packet->bufferSize = bufferSize;
-    packet->opcode = (uint16_t *) packet->buffer;
-    packet->endianness = HOST;
-    packet->length = 2;
-
-    *packet->opcode = opcode;
-    return 0;
-}
-
-int tftp_init_data(TftpPacket *packet, TftpPacketData *data) {
-    data->packet = packet;
-    *packet->opcode = TFTP_OPCODE_DATA;
-    data->blockNum = (uint16_t *) packet->content;
-    data->data = packet->content + 2;
-    data->dataLength = 0;
-    return 0;
-}
-
-int tftp_free(TftpPacket *packet) {
-    free(packet->buffer);
-    return 0;
-}
-
-int tftp_parse_packet(uint8_t *buffer, int bufferSize, int bytesRead, TftpPacket *packet) {
-    if (bytesRead < 2) {
-        return -1;
-    } else {
-
-        uint8_t ocLs = buffer[0];
-        buffer[0] = buffer[1];
-        buffer[1] = ocLs;
-
-        packet->buffer = buffer;
-        packet->bufferSize = bufferSize;
-        packet->opcode = (uint16_t *) buffer;
-
-        if (*packet->opcode < TFTP_OPCODE_MIN || *packet->opcode > TFTP_OPCODE_MAX) {
-            return -2;
+char *tftp_test_string(char *possible_string_start, int max) {
+    char *string_end_index = possible_string_start;
+    for (int i = 0; i < max; i++) {
+        char current = *(string_end_index++);
+        if (current == 0) {
+            return string_end_index - 1;
         }
-
-        packet->length = bytesRead;
-        packet->contentsLength = packet->length - 2;
-        packet->content = buffer + 2;
-
-        if (packet->contentsLength >= 2 &&
-            (*packet->opcode == TFTP_OPCODE_DATA || *packet->opcode == TFTP_OPCODE_ACKNOWLEDGEMENT)) {
-            uint8_t blkLs = packet->content[0];
-            packet->content[0] = packet->content[1];
-            packet->content[1] = blkLs;
-        }
-        packet->endianness = HOST;
-        return 0;
     }
+    return NULL;
 }
 
-int tftp_parse_req(TftpPacket *packet, TftpPacketRequest *request) {
-    if (packet->contentsLength < 2) {
-        return -1;
-    } else if (packet->endianness == NETWORK) {
-        return -2;
-    } else {
-        request->packet = packet;
-        request->filename = (char *) packet->content;
-        int filenameEndIndex = tftp_test_string(request->filename, packet->contentsLength);
-        if (filenameEndIndex == -1) {
-            return -3;
-        }
-        request->mode = request->filename + filenameEndIndex + 1;
-        int modeEndIndex = tftp_test_string(request->filename, packet->contentsLength);
-        if (modeEndIndex == -1) {
-            return -4;
-        }
-        return 0;
+int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data, const uint16_t data_length) {
+    request->opcode = -1;
+    memset(request->filename, 0, sizeof(request->filename));
+    memset(request->mode, 0, sizeof(request->mode));
+    request->has_window_size = 0;
+    request->has_timeout = 0;
+    request->has_block_size = 0;
+
+    if (data_length < 6) {
+        return TFTP_TOO_LITTLE_DATA;
     }
-}
 
-int tftp_parse_rrq(TftpPacket *packet, TftpPacketReadRequest *readRequest) {
-    return tftp_parse_req(packet, readRequest);
-}
+    uint16_t data_length_left = data_length;
 
-int tftp_parse_wrq(TftpPacket *packet, TftpPacketWriteRequest *writeRequest) {
-    return tftp_parse_req(packet, writeRequest);
-}
+    uint16_t opcode = (data[0] << 8u) + (data[1]);
 
-int tftp_parse_data(TftpPacket *packet, TftpPacketData *data) {
-    if (packet->contentsLength < 2) {
-        return -1;
-    } else if (packet->endianness == NETWORK) {
-        return -2;
-    } else {
-        data->packet = packet;
-        data->blockNum = (uint16_t *) packet->content;
-        if (packet->contentsLength > 4) {
-            data->dataLength = packet->contentsLength - 2;
-            data->data = packet->content + 2;
-        } else {
-            data->dataLength = 0;
-            data->data = NULL;
-        }
-        return 0;
+    request->opcode = opcode;
+
+    data_length_left -= 2;
+
+    if (opcode != TFTP_OPCODE_READ_REQUEST && opcode != TFTP_OPCODE_WRITE_REQUEST) {
+        return TFTP_INVALID_OPCODE;
     }
-}
 
-int tftp_parse_ack(TftpPacket *packet, TftpPacketAck *ack) {
-    if (packet->contentsLength != 2) {
-        return -1;
-    } else if (packet->endianness == NETWORK) {
-        return -2;
-    } else {
-        ack->packet = packet;
-        ack->blockNum = (uint16_t *) packet->content;
-        return 0;
+    uint16_t max_length_filename =
+            data_length_left <= sizeof(request->filename) ? data_length_left : sizeof(request->filename);
+
+    char *file_name_start = (char *) data + 2;
+    char *file_name_end = tftp_test_string(file_name_start, max_length_filename);
+
+    if (file_name_end == NULL) {
+        return TFTP_INVALID_NAME;
     }
-}
 
-int tftp_parse_error(TftpPacket *packet, TftpPacketError *error) {
-    if (packet->contentsLength <= 0) {
-        return -1;
-    } else if (packet->endianness == NETWORK) {
-        return -2;
-    } else {
-        error->errorCode = (uint16_t *) packet->content;
-        error->message = (char *) packet->content + 2;
-        int errMsgEndIndex = tftp_test_string(error->message, packet->contentsLength - 2);
-        if (errMsgEndIndex == -1) {
-            return -3;
-        }
-        return 0;
+    strcpy(request->filename, file_name_start);
+
+    data_length_left -= (file_name_end - file_name_start + 1);
+
+    uint16_t max_length_mode = data_length_left <= sizeof(request->mode) ? data_length_left : sizeof(request->mode);
+
+    char *mode_name_start = (char *) file_name_end + 1;
+    char *mode_name_end = tftp_test_string(mode_name_start, max_length_mode);
+
+    if (mode_name_end == NULL || strcmp(mode_name_end, "octet") == 0) {
+        return TFTP_INVALID_MODE;
     }
-}
 
-/**
- * Re-align the integers in {@param packet} to be network-order
- * @param packet the packet to re-align
- * @return 0 on success
- */
-int tftp_serialize(TftpPacket *packet, int dataLength) {
-    if (!(packet->endianness == HOST)) {
-        return -1;
-    } else {
-        uint16_t opcode = *packet->opcode;
-        uint8_t opLs = packet->buffer[1];
-        packet->buffer[1] = packet->buffer[0];
-        packet->buffer[0] = opLs;
+    strcpy(request->mode, mode_name_start);
 
-        packet->contentsLength = 0;
+    data_length_left -= (mode_name_end - mode_name_start + 1);
+    char *start_ptr = mode_name_end + 1;
+    char *end_ptr;
+    while (data_length_left > 2) {
+        int option = tftp_parse_option(start_ptr, data_length_left, &end_ptr);
+        data_length_left -= end_ptr - start_ptr + 1;
+        if (option == TFTP_OPTION_TIMEOUT) {
+            char *value_end_ptr;
+            long timeout = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
 
-        if (opcode == TFTP_OPCODE_ACKNOWLEDGEMENT || opcode == TFTP_OPCODE_DATA || opcode == TFTP_OPCODE_ERROR) {
-            uint8_t numLs = packet->content[1];
-            packet->content[1] = packet->content[0];
-            packet->content[0] = numLs;
-            packet->contentsLength += 2;
-            if (opcode == TFTP_OPCODE_DATA) {
-                packet->contentsLength += dataLength;
+            data_length_left -= value_end_ptr - end_ptr - 1;
+            start_ptr = value_end_ptr + 1;
+
+            if (timeout >= 1 && timeout <= 255) {
+                request->has_timeout = 1;
+                request->timeout = timeout;
+#ifdef DEBUG
+                printf("Found timeout %li\n", timeout);
+#endif
             }
-        }
+        } else if (option == TFTP_OPTION_BLOCKSIZE) {
+            char *value_end_ptr;
+            long blocksize = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
 
-        packet->length = 2 + packet->contentsLength;
-        packet->endianness = NETWORK;
-        return 0;
+            data_length_left -= value_end_ptr - end_ptr - 1;
+            start_ptr = value_end_ptr + 1;
+
+            if (blocksize >= 8 && blocksize <= 65464) {
+                request->has_block_size = 1;
+                request->block_size = blocksize;
+#ifdef DEBUG
+                printf("Found blocksize %li\n", blocksize);
+#endif
+            }
+        } else if (option == TFTP_OPTION_WINDOW_SIZE) {
+            char *value_end_ptr;
+            long window_size = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
+
+            data_length_left -= value_end_ptr - end_ptr - 1;
+            start_ptr = value_end_ptr + 1;
+
+            if (window_size >= 1 && window_size <= 65535) {
+                request->has_block_size = 1;
+                request->block_size = window_size;
+#ifdef DEBUG
+                printf("Found window size %li\n", window_size);
+#endif
+            }
+        } else if (option == TFTP_OPTION_INVALID) {
+            return TFTP_INVALID_OPTION;
+        } else {
+#ifdef DEBUG
+            printf("Found unknown option %s\n", start_ptr);
+#endif
+            char *value_end = tftp_test_string(end_ptr + 1, data_length_left);
+            data_length_left -= value_end - end_ptr - 1;
+            start_ptr = value_end + 1;
+        }
     }
+
+    return TFTP_SUCCESS;
 }
 
+int tftp_parse_option(char *possible_option, int max_length, char **option_end_ptr) {
+    char *option_start = possible_option;
+    char *option_end = tftp_test_string(option_start, max_length);
+
+    if (option_end == NULL) {
+        return TFTP_OPTION_INVALID;
+    } else {
+        *option_end_ptr = option_end;
+        if (strcmp(option_start, TFTP_TIMEOUT_STRING) == 0) {
+            return TFTP_OPTION_TIMEOUT;
+        } else if (strcmp(option_start, TFTP_BLOCKSIZE_STRING) == 0) {
+            return TFTP_OPTION_BLOCKSIZE;
+        } else if (strcmp(option_start, TFTP_WINDOW_SIZE_STRING) == 0) {
+            return TFTP_OPTION_WINDOW_SIZE;
+        }
+    }
+    return TFTP_OPTION_UNKNOWN;
+}
+
+long tftp_parse_ascii_number(char *data, int max_length, char **value_end_ptr) {
+
+    char *ascii_nr_start = data;
+    char *ascii_nr_end = tftp_test_string(ascii_nr_start, max_length);
+
+    if (ascii_nr_end == NULL) {
+        return TFTP_INVALID_OPTION;
+    }
+
+    long value = strtol(ascii_nr_start, value_end_ptr, 10);
+    if (value == 0 && errno != 0) {
+        return TFTP_INVALID_NUMBER;
+    }
+    return value;
+}
