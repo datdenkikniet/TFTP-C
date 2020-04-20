@@ -40,10 +40,10 @@ uint8_t recvBuffer[INITIAL_BUFSIZE];
 
 int running = 1;
 
-char *path;
+char path[512];
 
 int main(int argc, char **argv) {
-    path = argv[1];
+    strcpy(path, argv[1]);
     signal(SIGINT, sighandler);
     int sockfd;
     socklen_t sockAddrSize = sizeof(struct sockaddr_in);
@@ -59,20 +59,21 @@ int main(int argc, char **argv) {
     server.sin_port = htons(5555);
     int could_bind = bind(sockfd, (struct sockaddr *) &server, sockAddrSize);
 
-    if (could_bind != 0){
+    if (could_bind != 0) {
         printf("Could not bind to port\n");
         return 1;
     }
 
 
-    while (running){
+    while (running) {
         int rec = recvfrom(sockfd, recvBuffer, 514, 0, (struct sockaddr *) &client, &sockAddrSize);
         tftp_packet_request request_packet = {};
         int result = tftp_parse_packet_request(&request_packet, recvBuffer, rec);
-        if (result){
-            printf("Received request from %s:%d, opcode: %d, filename: %s, mode: %s\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port), request_packet.opcode, request_packet.filename, request_packet.mode);
+        if (result) {
+            printf("Received request from %s:%d, opcode: %d, filename: %s, mode: %s\n", inet_ntoa(client.sin_addr),
+                   ntohs(client.sin_port), request_packet.opcode, request_packet.filename, request_packet.mode);
             tftp_transmission transmission;
-            if (request_packet.has_block_size){
+            if (request_packet.has_block_size) {
                 tftp_init_transmission(&transmission, request_packet.block_size);
             } else {
                 tftp_init_transmission(&transmission, 512);
@@ -82,11 +83,10 @@ int main(int argc, char **argv) {
             transmission.client_addr = malloc(transmission.client_addr_size);
             transmission.original_socket = sockfd;
             memcpy(transmission.client_addr, &client, transmission.client_addr_size);
-            if (request_packet.opcode == TFTP_OPCODE_READ_REQUEST){
-                printf("Handle read request\n");
+            if (request_packet.opcode == TFTP_OPCODE_READ_REQUEST) {
                 handle_read_request(transmission);
-            } else if (request_packet.opcode == TFTP_OPCODE_WRITE_REQUEST){
-               // handle_write_request(transmission);
+            } else if (request_packet.opcode == TFTP_OPCODE_WRITE_REQUEST) {
+                // handle_write_request(transmission);
             }
         }
     }
@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
 }
 
 
-void sighandler(int signum){
+void sighandler(int signum) {
     printf("Stopping server...\n");
     running = 0;
 }
@@ -114,7 +114,7 @@ void handle_read_request(tftp_transmission transmission) {
     server.sin_port = htons(INADDR_ANY);
 
     int bound = bind(sockfd, (struct sockaddr *) &server, sizeof(struct sockaddr_in));
-    if (bound != 0){
+    if (bound != 0) {
         tftp_packet_error error;
         tftp_init_error(&error);
         tftp_set_error_message(&error, "Could not create new socket.");
@@ -123,22 +123,26 @@ void handle_read_request(tftp_transmission transmission) {
 
     transmission.socket = sockfd;
 
-    int fd = open(transmission.request.filename, O_RDONLY);
-    /*if (fd < 0){
+    char actualPath[512];
+    strcpy(actualPath, path);
+    if (actualPath[strlen(actualPath) - 1] != '/'){
+        strcat(actualPath, "/");
+    }
+    strcat(actualPath, transmission.request.filename);
+    int fd = open(actualPath, O_RDONLY);
+    if (fd < 0) {
         tftp_packet_error error;
         tftp_init_error(&error);
-        errno = ENOENT;
-        if (errno == ENOENT){
+        if (errno == ENOENT) {
             error.error_code = TFTP_ERROR_ENOENT;
             tftp_set_error_message(&error, TFTP_ERROR_ENOENT_STRING);
         } else {
 
         }
         tftp_send_error(transmission, &error, 0);
-    }*/
+    }
 
-    printf("Here\n");
-    if (tftp_request_has_options(transmission.request)){
+    if (tftp_request_has_options(transmission.request)) {
         tftp_packet_optionack optionack;
         tftp_init_oack(&optionack);
         optionack.has_block_size = transmission.request.has_block_size;

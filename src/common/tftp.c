@@ -119,9 +119,6 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
             if (timeout >= 1 && timeout <= 255) {
                 request->has_timeout = 1;
                 request->timeout = timeout;
-#ifdef DEBUG
-                printf("Found timeout %li\n", timeout);
-#endif
             }
         } else if (option == TFTP_OPTION_BLOCKSIZE) {
             char *value_end_ptr;
@@ -133,9 +130,6 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
             if (blocksize >= 8 && blocksize <= 65464) {
                 request->has_block_size = 1;
                 request->block_size = blocksize;
-#ifdef DEBUG
-                printf("Found blocksize %li\n", blocksize);
-#endif
             }
         } else if (option == TFTP_OPTION_WINDOW_SIZE) {
             char *value_end_ptr;
@@ -147,16 +141,10 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
             if (window_size >= 1 && window_size <= 65535) {
                 request->has_block_size = 1;
                 request->block_size = window_size;
-#ifdef DEBUG
-                printf("Found window size %li\n", window_size);
-#endif
             }
         } else if (option == TFTP_OPTION_INVALID) {
             return TFTP_INVALID_OPTION;
         } else {
-#ifdef DEBUG
-            printf("Found unknown option %s\n", start_ptr);
-#endif
             char *value_end = tftp_test_string(end_ptr + 1, data_length_left);
             data_length_left -= value_end - end_ptr - 1;
             start_ptr = value_end + 1;
@@ -219,12 +207,18 @@ void tftp_init_error(tftp_packet_error *packet) {
     memset(packet->message, 0, sizeof(packet->message));
 }
 
+void tftp_init_oack(tftp_packet_optionack *optionack) {
+    optionack->opcode = TFTP_OPCODE_OACK;
+    optionack->has_window_size = 0;
+    optionack->has_timeout = 0;
+    optionack->has_block_size = 0;
+}
+
 int tftp_set_error_message(tftp_packet_error *error, const char *message) {
     unsigned long length = strlen(message);
     if (length < sizeof(error->message)) {
         error->error_message_length = length + 1;
         strcpy(error->message, message);
-        printf("%s\n%s\n", message, error->message);
         return TFTP_SUCCESS;
     } else {
         return TFTP_STRING_TOO_LONG;
@@ -253,13 +247,6 @@ int tftp_send_error(tftp_transmission transmission, tftp_packet_error *error, in
 
 int tftp_request_has_options(tftp_packet_request request) {
     return request.has_block_size || request.has_timeout || request.has_window_size;
-}
-
-void tftp_init_oack(tftp_packet_optionack *optionack) {
-    optionack->opcode = TFTP_OPCODE_OACK;
-    optionack->has_window_size = 0;
-    optionack->has_timeout = 0;
-    optionack->has_block_size = 0;
 }
 
 int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optionack) {
@@ -295,8 +282,8 @@ int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optiona
 long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long value){
     uint8_t *end_ptr = start_ptr;
     strcpy(end_ptr, option_name);
-    end_ptr += strlen(option_name) + 2;
+    end_ptr += strlen(option_name) + 1;
     int printed = sprintf(end_ptr, "%d", value);
-    end_ptr += printed + 2;
+    end_ptr += printed + 1;
     return end_ptr - start_ptr;
 }
