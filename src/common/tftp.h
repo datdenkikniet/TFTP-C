@@ -66,6 +66,7 @@ extern const char *TFTP_BLOCKSIZE_STRING;
 extern const char *TFTP_TIMEOUT_STRING;
 // extern const char *TFTP_WINDOW_SIZE_STRING;
 
+extern const char *TFTP_ERROR_UNDEFINED_STRING;
 extern const char *TFTP_ERROR_ENOENT_STRING;
 extern const char *TFTP_ERROR_ACCESS_VIOLATION_STRING;
 extern const char *TFTP_ERROR_DISK_FULL_STRING;
@@ -157,7 +158,7 @@ void tftp_init_transmission(tftp_transmission *transmission, uint16_t block_size
 
 void tftp_free_transmission(tftp_transmission *transmission);
 
-void tftp_init_oack(tftp_packet_optionack *optionack);
+void tftp_init_oack(tftp_packet_optionack *option_ack);
 
 void tftp_init_error(tftp_packet_error *error);
 

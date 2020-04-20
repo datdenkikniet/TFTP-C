@@ -35,6 +35,7 @@ const char *TFTP_BLOCKSIZE_STRING = "blksize";
 const char *TFTP_TIMEOUT_STRING = "timeout";
 // const char *TFTP_WINDOW_SIZE_STRING = "windowsize";
 
+const char *TFTP_ERROR_UNDEFINED_STRING = "Undefined error.";
 const char *TFTP_ERROR_ENOENT_STRING = "No such file.";
 const char *TFTP_ERROR_ACCESS_VIOLATION_STRING = "Access violation";
 const char *TFTP_ERROR_DISK_FULL_STRING = "Disk full or allocation exceeded.";
@@ -75,13 +76,14 @@ void tftp_init_error(tftp_packet_error *packet) {
     packet->error_code = TFTP_ERROR_UNDEF;
     packet->error_message_length = 0;
     memset(packet->message, 0, sizeof(packet->message));
+    tftp_set_error_message(packet, TFTP_ERROR_UNDEFINED_STRING);
 }
 
-void tftp_init_oack(tftp_packet_optionack *optionack) {
-    optionack->opcode = TFTP_OPCODE_OACK;
-    optionack->has_window_size = 0;
-    optionack->has_timeout = 0;
-    optionack->has_block_size = 0;
+void tftp_init_oack(tftp_packet_optionack *option_ack) {
+    option_ack->opcode = TFTP_OPCODE_OACK;
+    option_ack->has_window_size = 0;
+    option_ack->has_timeout = 0;
+    option_ack->has_block_size = 0;
 }
 
 void tftp_init_data(tftp_packet_data *data) {

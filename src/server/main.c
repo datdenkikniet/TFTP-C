@@ -26,7 +26,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#import <unistd.h>
+#include <unistd.h>
 #include <errno.h>
 #include "../common/tftp.h"
 
@@ -130,7 +130,6 @@ void handle_read_request(tftp_transmission transmission) {
         tftp_set_error_message(&error, "Could not create new socket.");
         tftp_send_error(&transmission, &error, 1);
     }
-
     transmission.socket = sockfd;
 
     char actualPath[512];
@@ -153,6 +152,7 @@ void handle_read_request(tftp_transmission transmission) {
             tftp_set_error_message(&error, TFTP_ERROR_ACCESS_VIOLATION_STRING);
         }
         tftp_send_error(&transmission, &error, 0);
+        return;
     }
 
     tftp_packet_ack ack;
@@ -178,6 +178,7 @@ void handle_read_request(tftp_transmission transmission) {
         }
         block_num++;
     }
+
     if (!oack_error) {
         tftp_packet_data data;
         tftp_init_data(&data);
