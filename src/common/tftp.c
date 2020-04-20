@@ -20,7 +20,9 @@
  */
 #define DEBUG
 #ifdef DEBUG
+
 #include <stdio.h>
+
 #endif
 
 #include <string.h>
@@ -32,6 +34,14 @@
 const char *TFTP_BLOCKSIZE_STRING = "blksize";
 const char *TFTP_TIMEOUT_STRING = "timeout";
 const char *TFTP_WINDOW_SIZE_STRING = "windowsize";
+
+const char *TFTP_ERROR_ENOENT_STRING = "No such file.";
+const char *TFTP_ERROR_ACCESS_VIOLATION_STRING = "Access violation";
+const char *TFTP_ERROR_DISK_FULL_STRING = "Disk full or allocation exceeded.";
+const char *TFTP_ERROR_ILLEGAL_OP_STRING = "Illegal operation";
+const char *TFTP_ERROR_UNKNOWN_TID_STRING = "Unknown TID.";
+const char *TFTP_ERROR_FILE_EXISTS_STRING = "File exists";
+const char *TFTP_ERROR_NO_SUCH_USER_STRING = "No such user";
 
 char *tftp_test_string(char *possible_string_start, int max) {
     char *string_end_index = possible_string_start;
@@ -189,4 +199,80 @@ long tftp_parse_ascii_number(char *data, int max_length, char **value_end_ptr) {
         return TFTP_INVALID_NUMBER;
     }
     return value;
+}
+
+void tftp_init_transmission(tftp_transmission *transmission, uint16_t block_size) {
+    transmission->socket = -1;
+    transmission->original_socket = -1;
+    transmission->client_addr_size = 0;
+    transmission->client_addr = NULL;
+    transmission->rx_size = 4 + block_size;
+    transmission->rx_buffer = malloc(4 + block_size);
+    transmission->tx_size = 4 + block_size;
+    transmission->tx_buffer = malloc(4 + block_size);
+}
+
+void tftp_init_error(tftp_packet_error *packet) {
+    packet->opcode = TFTP_OPCODE_ERROR;
+    packet->error_code = TFTP_ERROR_UNDEF;
+    packet->error_message_length = 0;
+    memset(packet->message, 0, sizeof(packet->message));
+}
+
+int tftp_set_error_message(tftp_packet_error *error, const char *message) {
+    unsigned long length = strlen(message);
+    if (length < sizeof(error->message)) {
+        error->error_message_length = length + 1;
+        strcpy(error->message, message);
+        printf("%s\n%s\n", message, error->message);
+        return TFTP_SUCCESS;
+    } else {
+        return TFTP_STRING_TOO_LONG;
+    }
+}
+
+int tftp_send_error(tftp_transmission transmission, tftp_packet_error *error, int from_original_socket) {
+    int socket;
+    if (from_original_socket) {
+        socket = transmission.original_socket;
+    } else {
+        socket = transmission.socket;
+    }
+    int error_message_length = error->error_message_length == 0 ? 1 : error->error_message_length;
+    error->opcode = htons(error->opcode);
+    int sent = sendto(socket, error, 4 + error_message_length, 0, transmission.client_addr,
+                      transmission.client_addr_size);
+
+    if (sent < 0 && !from_original_socket) {
+        tftp_send_error(transmission, error, 1);
+    }
+
+    error->opcode = ntohs(error->opcode);
+    return 0;
+}
+
+int tftp_request_has_options(tftp_packet_request request) {
+    return request.has_block_size || request.has_timeout || request.has_window_size;
+}
+
+void tftp_init_oack(tftp_packet_optionack *optionack) {
+    optionack->opcode = TFTP_OPCODE_OACK;
+    optionack->has_window_size = 0;
+    optionack->has_timeout = 0;
+    optionack->has_block_size = 0;
+}
+
+int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optionack) {
+
+    uint8_t *buffer = transmission.tx_buffer;
+    tftp_packet_request req = transmission.request;
+    if (req.has_block_size) {
+
+    }
+    if (req.has_window_size) {
+
+    }
+    if (req.has_timeout) {
+
+    }
 }
