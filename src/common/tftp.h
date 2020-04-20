@@ -147,7 +147,6 @@ typedef struct {
     uint8_t *tx_buffer;
 } tftp_transmission;
 
-uint8_t *tftp_write_byte(uint8_t *buffer, uint8_t data);
 
 char *tftp_test_string(char *possible_string_start, int max_length);
 
@@ -156,6 +155,8 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
 int tftp_parse_option(char *possible_option, int max_length, char **option_end_ptr);
 
 long tftp_parse_ascii_number(char *start, int max_length, char **value_end_ptr);
+
+long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long value);
 
 int tftp_request_has_options(tftp_packet_request request);
 

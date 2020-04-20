@@ -35,15 +35,15 @@ void sighandler(int);
 
 void handle_read_request(tftp_transmission);
 
-void handle_write_request(tftp_transmission);
 
 uint8_t recvBuffer[INITIAL_BUFSIZE];
 
 int running = 1;
 
-char *base_path = "../files";
+char *path;
 
 int main(int argc, char **argv) {
+    path = argv[1];
     signal(SIGINT, sighandler);
     int sockfd;
     socklen_t sockAddrSize = sizeof(struct sockaddr_in);
@@ -96,6 +96,7 @@ int main(int argc, char **argv) {
 
 void sighandler(int signum){
     printf("Stopping server...\n");
+    running = 0;
 }
 
 void handle_read_request(tftp_transmission transmission) {
@@ -123,7 +124,7 @@ void handle_read_request(tftp_transmission transmission) {
     transmission.socket = sockfd;
 
     int fd = open(transmission.request.filename, O_RDONLY);
-    if (fd < 0){
+    /*if (fd < 0){
         tftp_packet_error error;
         tftp_init_error(&error);
         errno = ENOENT;
@@ -134,8 +135,9 @@ void handle_read_request(tftp_transmission transmission) {
 
         }
         tftp_send_error(transmission, &error, 0);
-    }
+    }*/
 
+    printf("Here\n");
     if (tftp_request_has_options(transmission.request)){
         tftp_packet_optionack optionack;
         tftp_init_oack(&optionack);
@@ -145,7 +147,6 @@ void handle_read_request(tftp_transmission transmission) {
         optionack.timeout = transmission.request.timeout;
         optionack.has_window_size = transmission.request.has_window_size;
         optionack.window_size = transmission.request.window_size;
-
         tftp_send_oack(transmission, optionack);
     }
 }

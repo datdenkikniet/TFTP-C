@@ -264,15 +264,39 @@ void tftp_init_oack(tftp_packet_optionack *optionack) {
 
 int tftp_send_oack(tftp_transmission transmission, tftp_packet_optionack optionack) {
 
-    uint8_t *buffer = transmission.tx_buffer;
+    uint8_t *start_ptr = transmission.tx_buffer;
     tftp_packet_request req = transmission.request;
-    if (req.has_block_size) {
 
+    *(start_ptr++) = optionack.opcode >> 8u & 0xFF;
+    *(start_ptr++) = optionack.opcode & 0xff;
+
+    if (req.has_block_size) {
+        start_ptr += tftp_write_number_option(start_ptr, TFTP_BLOCKSIZE_STRING, optionack.block_size);
     }
     if (req.has_window_size) {
+        start_ptr += tftp_write_number_option(start_ptr, TFTP_WINDOW_SIZE_STRING, optionack.window_size);
 
     }
     if (req.has_timeout) {
-
+        start_ptr += tftp_write_number_option(start_ptr, TFTP_TIMEOUT_STRING, optionack.timeout);
     }
+
+    long length = start_ptr - transmission.tx_buffer;
+    int sent = sendto(transmission.socket, transmission.tx_buffer, length, 0, transmission.client_addr,
+                      transmission.client_addr_size);
+    if (sent < 0){
+        printf("Errno: %d, length: %li\n", errno, length);
+        return TFTP_SEND_FAILED;
+    }
+    printf("Sent oack\n");
+    return TFTP_SUCCESS;
+}
+
+long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long value){
+    uint8_t *end_ptr = start_ptr;
+    strcpy(end_ptr, option_name);
+    end_ptr += strlen(option_name) + 2;
+    int printed = sprintf(end_ptr, "%d", value);
+    end_ptr += printed + 2;
+    return end_ptr - start_ptr;
 }
