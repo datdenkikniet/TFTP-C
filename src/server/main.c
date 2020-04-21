@@ -216,7 +216,7 @@ int main(int argc, char **argv) {
 
 
 void sighandler(int signum) {
-    printf("Stopping server...\n");
+    log_message(LOG_INFO,  "Stopping server...\n");
     running = 0;
 }
 

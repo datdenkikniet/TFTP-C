@@ -232,7 +232,6 @@ int tftp_parse_option(char *possible_option, int max_length, char **option_end_p
     if (option_end == NULL) {
         return TFTP_OPTION_INVALID;
     } else {
-        printf("Found option %s\n", option_start);
         *option_end_ptr = option_end;
         if (strcmp(option_start, TFTP_TIMEOUT_STRING) == 0) {
             return TFTP_OPTION_TIMEOUT;
@@ -243,9 +242,6 @@ int tftp_parse_option(char *possible_option, int max_length, char **option_end_p
         } /* else if (strcmp(option_start, TFTP_WINDOW_SIZE_STRING) == 0) {
                 return TFTP_OPTION_WINDOW_SIZE;
             } */
-        else {
-            printf("Found invalid option %s\n", option_start);
-        }
     }
     return TFTP_OPTION_UNKNOWN;
 }
