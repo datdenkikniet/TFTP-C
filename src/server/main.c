@@ -168,16 +168,16 @@ int main(int argc, char **argv) {
                 if (tftp_request_has_options(request_packet)) {
                     log_message(LOG_DEBUG, "Options:\n");
                     if (request_packet.has_block_size) {
-                        log_message(LOG_DEBUG, "Block size: %d\n", request_packet.block_size);
+                        log_message(LOG_DEBUG, "\tBlock size: %d\n", request_packet.block_size);
                     }
                     if (request_packet.has_window_size) {
-                        log_message(LOG_DEBUG, "Window size: %d\n", request_packet.window_size);
+                        log_message(LOG_DEBUG, "\tWindow size: %d\n", request_packet.window_size);
                     }
                     if (request_packet.has_timeout) {
-                        log_message(LOG_DEBUG, "Timeout: %d\n", request_packet.timeout);
+                        log_message(LOG_DEBUG, "\tTimeout: %d\n", request_packet.timeout);
                     }
                     if (request_packet.has_transfer_size) {
-                        log_message(LOG_DEBUG, "Transfer size: %d\n", request_packet.transfer_size);
+                        log_message(LOG_DEBUG, "\tTransfer size: %d\n", request_packet.transfer_size);
                     }
                 }
                 tftp_transmission transmission = tftp_create_transmission(request_packet.block_size);
@@ -211,6 +211,7 @@ int main(int argc, char **argv) {
             }
         }
     }
+    tftp_stop_transmission(&host_transmission);
     return 0;
 }
 

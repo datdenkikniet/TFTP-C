@@ -74,6 +74,7 @@ void tftp_stop_transmission(tftp_transmission *transmission) {
     if (transmission->socket != -1) {
         close(transmission->socket);
     }
+    free(transmission->client_addr);
     free(transmission->rx_buffer);
     free(transmission->tx_buffer);
 }
