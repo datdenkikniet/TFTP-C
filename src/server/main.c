@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 #include "../common/tftp.h"
 
 #define INITIAL_BUFSIZE 516
@@ -133,8 +134,13 @@ int main(int argc, char **argv) {
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
 
-    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 500000;
 
+
+    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout, sizeof(struct timeval));
 
     server.sin_port = htons(port);
     int could_bind = bind(sock_fd, (struct sockaddr *) &server, sock_addr_size);
@@ -151,49 +157,57 @@ int main(int argc, char **argv) {
     host_transmission.original_socket = sock_fd;
     while (running) {
         int rec = recvfrom(sock_fd, recv_buffer, 514, 0, (struct sockaddr *) &client, &sock_addr_size);
-        tftp_packet_request request_packet = {};
-        int result = tftp_parse_packet_request(&request_packet, recv_buffer, rec);
-        if (result) {
-            log_message(LOG_INFO, "Received request from %s:%d, opcode: %d, filename: %s, mode: %s\n",
-                        inet_ntoa(client.sin_addr),
-                        ntohs(client.sin_port), request_packet.opcode, request_packet.filename, request_packet.mode);
-            if (tftp_request_has_options(request_packet)) {
-                log_message(LOG_DEBUG, "Options:\n");
-                if (request_packet.has_block_size) {
-                    log_message(LOG_DEBUG, "Block size: %d\n", request_packet.block_size);
+        if (rec > 0) {
+            tftp_packet_request request_packet = {};
+            int result = tftp_parse_packet_request(&request_packet, recv_buffer, rec);
+            if (result) {
+                log_message(LOG_INFO, "Received request from %s:%d, opcode: %d, filename: %s, mode: %s\n",
+                            inet_ntoa(client.sin_addr),
+                            ntohs(client.sin_port), request_packet.opcode, request_packet.filename,
+                            request_packet.mode);
+                if (tftp_request_has_options(request_packet)) {
+                    log_message(LOG_DEBUG, "Options:\n");
+                    if (request_packet.has_block_size) {
+                        log_message(LOG_DEBUG, "Block size: %d\n", request_packet.block_size);
+                    }
+                    if (request_packet.has_window_size) {
+                        log_message(LOG_DEBUG, "Window size: %d\n", request_packet.window_size);
+                    }
+                    if (request_packet.has_timeout) {
+                        log_message(LOG_DEBUG, "Timeout: %d\n", request_packet.timeout);
+                    }
+                    if (request_packet.has_transfer_size) {
+                        log_message(LOG_DEBUG, "Transfer size: %d\n", request_packet.transfer_size);
+                    }
                 }
-                if (request_packet.has_window_size) {
-                    log_message(LOG_DEBUG, "Window size: %d\n", request_packet.window_size);
-                }
-                if (request_packet.has_timeout) {
-                    log_message(LOG_DEBUG, "Timeout: %d\n", request_packet.timeout);
-                }
-            }
-            tftp_transmission transmission = tftp_create_transmission(request_packet.block_size);
+                tftp_transmission transmission = tftp_create_transmission(request_packet.block_size);
 
-            transmission.request = request_packet;
-            transmission.client_addr_size = sizeof(client);
-            transmission.client_addr = malloc(transmission.client_addr_size);
-            transmission.original_socket = sock_fd;
-            memcpy(transmission.client_addr, &client, transmission.client_addr_size);
-            if (strstr(request_packet.filename, "../") != NULL || strstr(request_packet.filename, "/../") != NULL ||
-                strstr(request_packet.filename, "/..") != NULL || strstr(request_packet.filename, "~/") != NULL) {
-                tftp_packet_error error = tftp_create_packet_error();
-                tftp_set_error(&error, TFTP_ERROR_UNDEF);
-                tftp_set_error_message(&error, "Filename must not contain relative operators.");
-                tftp_send_error(&host_transmission, &error, 1);
-                log_message(LOG_TRACE, "Sent error code %d, \"%.*s\"\n", error.error_code, error.error_message_length,
-                            error.message);
-            } else if (request_packet.opcode == TFTP_OPCODE_READ_REQUEST) {
-                handle_read_request(transmission);
-            } else if (request_packet.opcode == TFTP_OPCODE_WRITE_REQUEST) {
-                // handle_write_request(transmission);
-            } else {
-                tftp_packet_error error = tftp_create_packet_error();
-                tftp_set_error(&error, TFTP_ERROR_ILLEGAL_OP);
-                tftp_send_error(&host_transmission, &error, 1);
-                log_message(LOG_TRACE, "Sent error code %d, \"%.*s\"\n", error.error_code, error.error_message_length,
-                            error.message);
+                transmission.request = request_packet;
+                transmission.client_addr_size = sizeof(client);
+                transmission.client_addr = malloc(transmission.client_addr_size);
+                transmission.original_socket = sock_fd;
+                memcpy(transmission.client_addr, &client, transmission.client_addr_size);
+                if (strstr(request_packet.filename, "../") != NULL || strstr(request_packet.filename, "/../") != NULL ||
+                    strstr(request_packet.filename, "/..") != NULL || strstr(request_packet.filename, "~/") != NULL) {
+                    tftp_packet_error error = tftp_create_packet_error();
+                    tftp_set_error(&error, TFTP_ERROR_UNDEF);
+                    tftp_set_error_message(&error, "Filename must not contain relative operators.");
+                    tftp_send_error(&host_transmission, &error, 1);
+                    log_message(LOG_TRACE, "Sent error code %d, \"%.*s\"\n", error.error_code,
+                                error.error_message_length,
+                                error.message);
+                } else if (request_packet.opcode == TFTP_OPCODE_READ_REQUEST) {
+                    handle_read_request(transmission);
+                } else if (request_packet.opcode == TFTP_OPCODE_WRITE_REQUEST) {
+                    // handle_write_request(transmission);
+                } else {
+                    tftp_packet_error error = tftp_create_packet_error();
+                    tftp_set_error(&error, TFTP_ERROR_ILLEGAL_OP);
+                    tftp_send_error(&host_transmission, &error, 1);
+                    log_message(LOG_TRACE, "Sent error code %d, \"%.*s\"\n", error.error_code,
+                                error.error_message_length,
+                                error.message);
+                }
             }
         }
     }
@@ -275,6 +289,9 @@ void handle_read_request(tftp_transmission transmission) {
     tftp_packet_error recv_error = tftp_create_packet_error();
 
     if (tftp_request_has_options(transmission.request)) {
+        struct stat stats;
+        fstat(file_descriptor, &stats);
+
         tftp_packet_optionack optionack = tftp_create_packet_oack();
         optionack.has_block_size = transmission.request.has_block_size;
         optionack.block_size = transmission.request.block_size;
@@ -282,16 +299,22 @@ void handle_read_request(tftp_transmission transmission) {
         optionack.timeout = transmission.request.timeout;
         optionack.has_window_size = transmission.request.has_window_size;
         optionack.window_size = transmission.request.window_size;
+        optionack.has_transfer_size = transmission.request.has_transfer_size;
+        optionack.transfer_size = stats.st_size;
         tftp_send_oack(&transmission, optionack);
         log_message(LOG_TRACE, "Sent oack:\n");
         if (optionack.has_block_size) {
-            log_message(LOG_TRACE, "Block size: %d\n", optionack.block_size);
+            log_message(LOG_TRACE, "\tBlock size: %d\n", optionack.block_size);
         }
         if (optionack.has_window_size) {
-            log_message(LOG_TRACE, "Window size: %d\n", optionack.window_size);
+            log_message(LOG_TRACE, "\tWindow size: %d\n", optionack.window_size);
         }
         if (optionack.has_timeout) {
-            log_message(LOG_TRACE, "Timeout: %d\n", optionack.timeout);
+            log_message(LOG_TRACE, "\tTimeout: %d\n", optionack.timeout);
+        }
+        if (optionack.has_transfer_size){
+            log_message(LOG_TRACE, "\tTransfer size: %d\n", optionack.transfer_size);
+
         }
         int receive = tftp_receive_ack(&transmission, &ack, &recv_error);
         if (receive == TFTP_OP_ERROR) {

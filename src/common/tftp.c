@@ -35,6 +35,7 @@
 const char *TFTP_BLOCKSIZE_STRING = "blksize";
 const char *TFTP_TIMEOUT_STRING = "timeout";
 // const char *TFTP_WINDOW_SIZE_STRING = "windowsize";
+const char *TFTP_TSIZE_STRING = "tsize";
 
 const char *TFTP_ERROR_UNDEFINED_STRING = "Undefined error.";
 const char *TFTP_ERROR_ENOENT_STRING = "No such file.";
@@ -198,6 +199,16 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
                 request->has_block_size = 1;
                 request->block_size = window_size;
             }
+        } else if (option == TFTP_OPTION_TSIZE) {
+            char *value_end_ptr;
+            long transfer_size = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
+
+            data_length_left -= value_end_ptr - end_ptr - 1;
+            start_ptr = value_end_ptr + 1;
+            request->has_transfer_size = 1;
+            if (transfer_size != TFTP_INVALID_NUMBER) {
+                request->transfer_size = transfer_size;
+            }
         } else if (option == TFTP_OPTION_INVALID) {
             return TFTP_INVALID_OPTION;
         } else {
@@ -221,14 +232,20 @@ int tftp_parse_option(char *possible_option, int max_length, char **option_end_p
     if (option_end == NULL) {
         return TFTP_OPTION_INVALID;
     } else {
+        printf("Found option %s\n", option_start);
         *option_end_ptr = option_end;
         if (strcmp(option_start, TFTP_TIMEOUT_STRING) == 0) {
             return TFTP_OPTION_TIMEOUT;
         } else if (strcmp(option_start, TFTP_BLOCKSIZE_STRING) == 0) {
             return TFTP_OPTION_BLOCKSIZE;
+        } else if (strcmp(option_start, TFTP_TSIZE_STRING) == 0) {
+            return TFTP_OPTION_TSIZE;
         } /* else if (strcmp(option_start, TFTP_WINDOW_SIZE_STRING) == 0) {
-            return TFTP_OPTION_WINDOW_SIZE;
-        } */
+                return TFTP_OPTION_WINDOW_SIZE;
+            } */
+        else {
+            printf("Found invalid option %s\n", option_start);
+        }
     }
     return TFTP_OPTION_UNKNOWN;
 }
@@ -303,26 +320,29 @@ int tftp_send_error(tftp_transmission *transmission, tftp_packet_error *error, i
 }
 
 int tftp_request_has_options(tftp_packet_request request) {
-    return request.has_block_size || request.has_timeout || request.has_window_size;
+    return request.has_block_size || request.has_timeout || request.has_window_size || request.has_transfer_size;
 }
 
 int tftp_send_oack(tftp_transmission *transmission, tftp_packet_optionack optionack) {
 
     uint8_t *start_ptr = transmission->tx_buffer;
-    tftp_packet_request req = transmission->request;
 
     *(start_ptr++) = TFTP_OPCODE_OACK >> 8u;
     *(start_ptr++) = TFTP_OPCODE_OACK & 0xffu;
 
-    if (req.has_block_size) {
+    if (optionack.has_block_size) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_BLOCKSIZE_STRING, optionack.block_size);
     }
     /* if (req.has_window_size) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_WINDOW_SIZE_STRING, optionack.window_size);
 
     } */
-    if (req.has_timeout) {
+    if (optionack.has_timeout) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_TIMEOUT_STRING, optionack.timeout);
+    }
+
+    if (optionack.has_transfer_size){
+        start_ptr += tftp_write_number_option(start_ptr, TFTP_TSIZE_STRING, optionack.transfer_size);
     }
 
     long length = start_ptr - transmission->tx_buffer;
@@ -359,7 +379,8 @@ int tftp_send_data(tftp_transmission *transmission, tftp_packet_data *data, int 
 }
 
 int tftp_receive_ack(tftp_transmission *transmission, tftp_packet_ack *ack, tftp_packet_error *error) {
-    int received = recvfrom(transmission->socket, transmission->rx_buffer, transmission->rx_size, 0, transmission->client_addr,
+    int received = recvfrom(transmission->socket, transmission->rx_buffer, transmission->rx_size, 0,
+                            transmission->client_addr,
                             &transmission->client_addr_size);
     if (received < 4) {
         return TFTP_RECV_FAILED;

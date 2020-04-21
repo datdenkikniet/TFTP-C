@@ -52,6 +52,7 @@
 #define TFTP_OPTION_BLOCKSIZE 0
 #define TFTP_OPTION_TIMEOUT 1
 #define TFTP_OPTION_WINDOW_SIZE 2
+#define TFTP_OPTION_TSIZE 3
 
 #define TFTP_ERROR_UNDEF 0
 #define TFTP_ERROR_ENOENT 1
@@ -67,6 +68,7 @@
 extern const char *TFTP_BLOCKSIZE_STRING;
 extern const char *TFTP_TIMEOUT_STRING;
 // extern const char *TFTP_WINDOW_SIZE_STRING;
+extern const char *TFTP_TSIZE_STRING;
 
 extern const char *TFTP_ERROR_UNDEFINED_STRING;
 extern const char *TFTP_ERROR_ENOENT_STRING;
@@ -91,6 +93,9 @@ typedef struct {
 
     int has_window_size;
     uint16_t window_size;
+
+    int has_transfer_size;
+    long int transfer_size;
 } tftp_packet_request;
 
 typedef struct {
@@ -128,6 +133,9 @@ typedef struct {
 
     int has_window_size;
     uint16_t window_size;
+
+    int has_transfer_size;
+    long transfer_size;
 } tftp_packet_optionack;
 
 typedef struct {
