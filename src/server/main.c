@@ -39,8 +39,13 @@
 #define LOG_DEBUG 3
 #define LOG_TRACE 50
 
-int LOG_LEVEL = LOG_DEBUG;
+int LOG_LEVEL = LOG_INFO;
 int TRACE = 0;
+
+const char *version = "1.0.0";
+const char *defaultaddress = "0.0.0.0";
+const int defaultport = 5555;
+const char defaultpath[] = ".";
 
 void sighandler(int);
 
@@ -48,34 +53,94 @@ void handle_read_request(tftp_transmission);
 
 void log_message(int level, const char *format, ...);
 
+void print_help() {
+    printf("cTFTP version %s help:\n", version);
+    printf("Command: ctftp [OPTIONS]\n");
+    printf("Options:\n");
+    printf("\t-h\t\t\tShow help menu\n");
+    printf("\t-t\t\t\tEnable packet tracing\n");
+    printf("\t-v\t\t\tSet verbosity level (use more for more verbosity)\n");
+    printf("\t-s\t\t\tSilent mode (no messages printed)\n");
+    printf("\t-p [PORT]\tSet the port the server will listen on. Default: %d\n", defaultport);
+    printf("\t-a [IPv4]\tSet the IP address the server will listen on. Default: %s\n", defaultaddress);
+    printf("\t-r [path]\tSet the root path for files this server will serve. Default: %s\n", defaultpath);
+}
+
 uint8_t recv_buffer[INITIAL_BUFSIZE];
 
 int running = 1;
-
-char path[512];
+char *root_path = defaultpath;
 
 int main(int argc, char **argv) {
-    int port = 5555;
-    signal(SIGINT, sighandler);
-    signal(SIGTERM, sighandler);
+    char *address = defaultaddress;
+    int port = defaultport;
 
-    strcpy(path, argv[1]);
     int sock_fd;
     socklen_t sock_addr_size = sizeof(struct sockaddr_in);
     struct sockaddr_in server, client;
-
-    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
 
-    // Converting arguments from host byte order to network byte order
-    // Then binding address to socket using arguments
-    server.sin_addr.s_addr = htonl(INADDR_ANY);
+    int option;
+    while ((option = getopt(argc, argv, ":hvstp:r:a:")) != -1) {
+        switch (option) {
+            case 'v':
+                if (LOG_LEVEL < LOG_DEBUG) {
+                    LOG_LEVEL++;
+                }
+                break;
+            case 's':
+                LOG_LEVEL = LOG_NONE;
+                break;
+            case 'p': {
+                char *end_ptr;
+                long picked_port = strtol(optarg, &end_ptr, 10);
+                if (port < 1 || port > 65535 || end_ptr != optarg + strlen(optarg)) {
+                    log_message(LOG_INFO, "Invalid port %s.\n", optarg);
+                    return 3;
+                } else {
+                    port = picked_port;
+                }
+                break;
+            }
+            case 'r': {
+                root_path = optarg;
+                break;
+            }
+            case 't':
+                TRACE = 1;
+                break;
+            case 'h':
+                print_help();
+                return 0;
+            case 'a': {
+                address = optarg;
+                int convert_address = inet_aton(address, &server.sin_addr);
+                if (convert_address == 0) {
+                    log_message(LOG_INFO, "Invalid address %s\n", address);
+                    return 3;
+                }
+                break;
+            }
+            case '?':
+            default:
+                printf("Unknown option %c. Use -h for help\n", option);
+                return 2;
+        }
+    }
+    log_message(LOG_VERBOSE, "Using address %s, port %d, verbosity level %d, and root directory %s\n", address, port,
+                LOG_LEVEL, root_path);
+    signal(SIGINT, sighandler);
+    signal(SIGTERM, sighandler);
+
+    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+
     server.sin_port = htons(port);
     int could_bind = bind(sock_fd, (struct sockaddr *) &server, sock_addr_size);
 
     if (could_bind != 0) {
-        log_message(LOG_NONE, "Could not bind to port %d. Terminating\n", port);
+        log_message(LOG_INFO, "Could not bind to port %d. Terminating\n", port);
         return 1;
     }
 
@@ -111,7 +176,15 @@ int main(int argc, char **argv) {
             transmission.client_addr = malloc(transmission.client_addr_size);
             transmission.original_socket = sock_fd;
             memcpy(transmission.client_addr, &client, transmission.client_addr_size);
-            if (request_packet.opcode == TFTP_OPCODE_READ_REQUEST) {
+            if (strstr(request_packet.filename, "../") != NULL || strstr(request_packet.filename, "/../") != NULL ||
+                strstr(request_packet.filename, "/..") != NULL || strstr(request_packet.filename, "~/") != NULL) {
+                tftp_packet_error error = tftp_create_packet_error();
+                tftp_set_error(&error, TFTP_ERROR_UNDEF);
+                tftp_set_error_message(&error, "Filename must not contain relative operators.");
+                tftp_send_error(&host_transmission, &error, 1);
+                log_message(LOG_TRACE, "Sent error code %d, \"%.*s\"\n", error.error_code, error.error_message_length,
+                            error.message);
+            } else if (request_packet.opcode == TFTP_OPCODE_READ_REQUEST) {
                 handle_read_request(transmission);
             } else if (request_packet.opcode == TFTP_OPCODE_WRITE_REQUEST) {
                 // handle_write_request(transmission);
@@ -172,7 +245,7 @@ void handle_read_request(tftp_transmission transmission) {
     transmission.socket = sockfd;
 
     char actualPath[512];
-    strcpy(actualPath, path);
+    strcpy(actualPath, root_path);
     if (actualPath[strlen(actualPath) - 1] != '/') {
         strcat(actualPath, "/");
     }
