@@ -338,7 +338,7 @@ int tftp_send_oack(tftp_transmission *transmission, tftp_packet_optionack option
         start_ptr += tftp_write_number_option(start_ptr, TFTP_TIMEOUT_STRING, optionack.timeout);
     }
 
-    if (optionack.has_transfer_size){
+    if (optionack.has_transfer_size) {
         start_ptr += tftp_write_number_option(start_ptr, TFTP_TSIZE_STRING, optionack.transfer_size);
     }
 

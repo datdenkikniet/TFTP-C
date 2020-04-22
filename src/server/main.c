@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
 
 
 void sighandler(int signum) {
-    log_message(LOG_INFO,  "Stopping server...\n");
+    log_message(LOG_INFO, "Stopping server...\n");
     running = 0;
 }
 
@@ -313,7 +313,7 @@ void handle_read_request(tftp_transmission transmission) {
         if (optionack.has_timeout) {
             log_message(LOG_TRACE, "\tTimeout: %d\n", optionack.timeout);
         }
-        if (optionack.has_transfer_size){
+        if (optionack.has_transfer_size) {
             log_message(LOG_TRACE, "\tTransfer size: %d\n", optionack.transfer_size);
 
         }
@@ -338,24 +338,28 @@ void handle_read_request(tftp_transmission transmission) {
 
     int retransmissions = 0;
     int is_retransmission = 0;
+    int do_transmission = 1;
     int read_bytes = -1;
     uint16_t block_num = 1;
     long block_counter = 0;
     do {
-        if (!is_retransmission) {
+        if (!is_retransmission && do_transmission) {
             read_bytes = read(file_descriptor, data.buffer, data.buffer_length);
         }
         data.block_num = block_num;
         data.data_size = read_bytes;
-        tftp_send_data(&transmission, &data, 0);
-        log_message(LOG_TRACE, "Send data block %d, size %d\n", block_num, read_bytes);
+        if (do_transmission) {
+            tftp_send_data(&transmission, &data, 0);
+        }
+        log_message(LOG_TRACE, "Sent data block %d, size %d\n", block_num, read_bytes);
 
         int receive = tftp_receive_ack(&transmission, &ack, &recv_error);
 
         if (receive == TFTP_OP_ERROR) {
             log_message(LOG_VERBOSE, "Received TFTP error. Error code %d, message \"%.*s\".\n", recv_error.error_code,
                         recv_error.error_message_length, recv_error.message);
-            break;
+            tftp_stop_transmission(&transmission);
+            return;
         }
 
         if (receive == TFTP_INVALID_OPCODE) {
@@ -390,13 +394,17 @@ void handle_read_request(tftp_transmission transmission) {
                 block_counter += 1;
                 is_retransmission = 0;
                 retransmissions = 0;
+                do_transmission = 1;
+            } else if (ack.block_num < block_num) {
+                do_transmission = 0;
+                continue;
             } else {
                 retransmissions++;
                 is_retransmission = 1;
                 log_message(LOG_TRACE, "Received incorrect ACK.\n", retransmissions);
             }
         }
-    } while (read_bytes == transmission.request.block_size);
+    } while (read_bytes == transmission.request.block_size || is_retransmission);
     log_message(LOG_VERBOSE, "Successfully transferred file %s in %li blocks.\n", transmission.request.filename,
                 block_counter);
     tftp_stop_transmission(&transmission);
