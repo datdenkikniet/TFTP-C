@@ -30,6 +30,7 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "tftp.h"
 
 const char *TFTP_BLOCKSIZE_STRING = "blksize";
@@ -61,6 +62,7 @@ tftp_transmission tftp_create_transmission(uint16_t block_size) {
     tftp_transmission transmission;
     transmission.socket = -1;
     transmission.original_socket = -1;
+    transmission.file_descriptor = -1;
     transmission.client_addr_size = 0;
     transmission.client_addr = NULL;
     transmission.rx_size = 4 + block_size;
@@ -73,6 +75,9 @@ tftp_transmission tftp_create_transmission(uint16_t block_size) {
 void tftp_stop_transmission(tftp_transmission *transmission) {
     if (transmission->socket != -1) {
         close(transmission->socket);
+    }
+    if (transmission->file_descriptor != -1) {
+        close(transmission->file_descriptor);
     }
     free(transmission->client_addr);
     free(transmission->rx_buffer);
@@ -140,6 +145,7 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
             data_length_left <= sizeof(request->filename) ? data_length_left : sizeof(request->filename);
 
     char *file_name_start = (char *) data + 2;
+
     char *file_name_end = tftp_test_string(file_name_start, max_length_filename);
 
     if (file_name_end == NULL) {
@@ -149,7 +155,6 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
     strcpy(request->filename, file_name_start);
 
     data_length_left -= (file_name_end - file_name_start + 1);
-
     uint16_t max_length_mode = data_length_left <= sizeof(request->mode) ? data_length_left : sizeof(request->mode);
 
     char *mode_name_start = (char *) file_name_end + 1;
@@ -159,60 +164,35 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
         return TFTP_INVALID_MODE;
     }
 
-    strcpy(request->mode, mode_name_start);
 
+    strcpy(request->mode, mode_name_start);
     data_length_left -= (mode_name_end - mode_name_start + 1);
     char *start_ptr = mode_name_end + 1;
-    char *end_ptr;
+    char *end_ptr = NULL;
     while (data_length_left > 2) {
         int option = tftp_parse_option(start_ptr, data_length_left, &end_ptr);
+        printf("%d\n", option);
         data_length_left -= end_ptr - start_ptr + 1;
-        if (option == TFTP_OPTION_TIMEOUT) {
-            char *value_end_ptr;
-            long timeout = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
 
-            data_length_left -= value_end_ptr - end_ptr - 1;
-            start_ptr = value_end_ptr + 1;
+#define DO_PARSE(opt, bool, val, min, max)                                                  \
+    if (option == opt) {                                                                    \
+        char *value_end_ptr;                                                                \
+        long value = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);\
+    if (value != TFTP_INVALID_NUMBER && value != TFTP_INVALID_OPTION){                      \
+      data_length_left -= value_end_ptr - end_ptr - 1;                                      \
+        start_ptr = value_end_ptr + 1;                                                      \
+        if (value >= min && (value <= max || max == -1)) {                                  \
+            request->bool = 1;                                                              \
+            request->val = value;                                                           \
+            }}}
 
-            if (timeout >= 1 && timeout <= 255) {
-                request->has_timeout = 1;
-                request->timeout = timeout;
-            }
-        } else if (option == TFTP_OPTION_BLOCKSIZE) {
-            char *value_end_ptr;
-            long blocksize = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
-
-            data_length_left -= value_end_ptr - end_ptr - 1;
-            start_ptr = value_end_ptr + 1;
-
-            if (blocksize >= 8 && blocksize <= 65464) {
-                request->has_block_size = 1;
-                request->block_size = blocksize;
-            }
-        } else if (option == TFTP_OPTION_WINDOW_SIZE) {
-            char *value_end_ptr;
-            long window_size = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
-
-            data_length_left -= value_end_ptr - end_ptr - 1;
-            start_ptr = value_end_ptr + 1;
-
-            if (window_size >= 1 && window_size <= 65535) {
-                request->has_block_size = 1;
-                request->block_size = window_size;
-            }
-        } else if (option == TFTP_OPTION_TSIZE) {
-            char *value_end_ptr;
-            long transfer_size = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);
-
-            data_length_left -= value_end_ptr - end_ptr - 1;
-            start_ptr = value_end_ptr + 1;
-            request->has_transfer_size = 1;
-            if (transfer_size != TFTP_INVALID_NUMBER) {
-                request->transfer_size = transfer_size;
-            }
-        } else if (option == TFTP_OPTION_INVALID) {
+        DO_PARSE(TFTP_OPTION_TIMEOUT, has_timeout, timeout, 1, 255)
+        else DO_PARSE(TFTP_OPTION_BLOCKSIZE, has_block_size, block_size, 8, 65464)
+        else DO_PARSE(TFTP_OPTION_WINDOW_SIZE, has_window_size, window_size, 1, 65535)
+        else DO_PARSE(TFTP_OPTION_TSIZE, has_transfer_size, transfer_size, 0, -1)
+        else if (option == TFTP_OPTION_INVALID) {
             return TFTP_INVALID_OPTION;
-        } else {
+        } else if (option != TFTP_OPTION_UNKNOWN) {
             char *value_end = tftp_test_string(end_ptr + 1, data_length_left);
             data_length_left -= value_end - end_ptr - 1;
             start_ptr = value_end + 1;

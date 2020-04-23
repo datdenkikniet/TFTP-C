@@ -143,6 +143,8 @@ typedef struct {
     int original_socket;
     int socket;
 
+    int file_descriptor;
+
     struct sockaddr *client_addr;
     unsigned int client_addr_size;
 

@@ -44,15 +44,17 @@ int LOG_LEVEL = LOG_INFO;
 int TRACE = 0;
 
 const char *version = "1.0.0";
-const char *defaultaddress = "0.0.0.0";
-const int defaultport = 5555;
-const char defaultpath[] = ".";
+char *defaultaddress = "0.0.0.0";
+int defaultport = 5555;
+char defaultpath[] = ".";
 
 void sighandler(int);
 
 void handle_read_request(tftp_transmission);
 
 void log_message(int level, const char *format, ...);
+
+void run_test();
 
 void print_help() {
     printf("cTFTP version %s help:\n", version);
@@ -286,6 +288,7 @@ void handle_read_request(tftp_transmission transmission) {
         return;
     }
 
+    transmission.file_descriptor = file_descriptor;
     tftp_packet_ack ack = tftp_create_packet_ack();
     tftp_packet_error recv_error = tftp_create_packet_error();
 
@@ -420,3 +423,17 @@ void log_message(int level, const char *format, ...) {
     va_end(argp);
 }
 
+void run_test(){
+    uint8_t packet_output[] = {
+            0x00, 0x01, 0x73, 0x79, 0x73, 0x6c, 0x69, 0x6e, 0x75, 0x78, 0x2e, 0x65,
+            0x66, 0x69, 0x36, 0x34, 0x00, 0x6f, 0x63, 0x74, 0x65, 0x74, 0x00, 0x74,
+            0x73, 0x69, 0x7a, 0x65, 0x00, 0x30, 0x00, 0x62, 0x6c, 0x6b, 0x73, 0x69,
+            0x7a, 0x65, 0x00, 0x31, 0x34, 0x36, 0x38, 0x00, 0x77, 0x69, 0x6e, 0x64,
+            0x6f, 0x77, 0x73, 0x69, 0x7a, 0x65, 0x00, 0x34, 0x00, 0x00, 0x31, 0x34,
+            0x30, 0x38, 0x00, 0x00, 0x30, 0x00, 0x62, 0x6c, 0x6b, 0x73, 0x69, 0x7a,
+            0x65, 0x00, 0x31, 0x34, 0x30, 0x38, 0x00
+    };
+    const int packet_length = 79;
+    tftp_packet_request request = {};
+    tftp_parse_packet_request(&request, packet_output, packet_length);
+}
