@@ -171,7 +171,6 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
     char *end_ptr = NULL;
     while (data_length_left > 2) {
         int option = tftp_parse_option(start_ptr, data_length_left, &end_ptr);
-        printf("%d\n", option);
         data_length_left -= end_ptr - start_ptr + 1;
 
 #define DO_PARSE(opt, bool, val, min, max)                                                  \
@@ -192,8 +191,11 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
         else DO_PARSE(TFTP_OPTION_TSIZE, has_transfer_size, transfer_size, 0, -1)
         else if (option == TFTP_OPTION_INVALID) {
             return TFTP_INVALID_OPTION;
-        } else if (option != TFTP_OPTION_UNKNOWN) {
+        } else {
             char *value_end = tftp_test_string(end_ptr + 1, data_length_left);
+            if (value_end == NULL){
+                break;
+            }
             data_length_left -= value_end - end_ptr - 1;
             start_ptr = value_end + 1;
         }
