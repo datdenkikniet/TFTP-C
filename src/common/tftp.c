@@ -173,31 +173,41 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
         int option = tftp_parse_option(start_ptr, data_length_left, &end_ptr);
         data_length_left -= end_ptr - start_ptr + 1;
 
-#define DO_PARSE(opt, bool, val, min, max)                                                  \
-    if (option == opt) {                                                                    \
-        char *value_end_ptr;                                                                \
-        long value = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);\
-    if (value != TFTP_INVALID_NUMBER && value != TFTP_INVALID_OPTION){                      \
-      data_length_left -= value_end_ptr - end_ptr - 1;                                      \
-        start_ptr = value_end_ptr + 1;                                                      \
-        if (value >= min && (value <= max || max == -1)) {                                  \
-            request->bool = 1;                                                              \
-            request->val = value;                                                           \
-            }}}
+#define DO_PARSE(opt, bool, val, min, max, defvalue)                                            \
+    if (option == opt) {                                                                        \
+        char *value_end_ptr;                                                                    \
+        long value = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);    \
+        data_length_left -= value_end_ptr - end_ptr - 1;                                        \
+        if (value_end_ptr != NULL){                                                             \
+            start_ptr = value_end_ptr + 1;                                                      \
+        } else {                                                                                \
+            break;                                                                              \
+        }                                                                                       \
+        if (value != TFTP_INVALID_NUMBER){                                                      \
+          if (value >= min && (value <= max || max == -1)) {                                    \
+            request->bool = 1;                                                                  \
+            request->val = value;                                                               \
+            }                                                                                   \
+        } else {                                                                                \
+            request->bool = 1;                                                                  \
+            request-> val = defvalue;                                                           \
+        }                                                                                       \
+    }
 
-        DO_PARSE(TFTP_OPTION_TIMEOUT, has_timeout, timeout, 1, 255)
-        else DO_PARSE(TFTP_OPTION_BLOCKSIZE, has_block_size, block_size, 8, 65464)
-        else DO_PARSE(TFTP_OPTION_WINDOW_SIZE, has_window_size, window_size, 1, 65535)
-        else DO_PARSE(TFTP_OPTION_TSIZE, has_transfer_size, transfer_size, 0, -1)
+        DO_PARSE(TFTP_OPTION_TIMEOUT, has_timeout, timeout, 1, 255, 5)
+        else DO_PARSE(TFTP_OPTION_BLOCKSIZE, has_block_size, block_size, 8, 65464, 512)
+        else DO_PARSE(TFTP_OPTION_WINDOW_SIZE, has_window_size, window_size, 1, 65535, 4)
+        else DO_PARSE(TFTP_OPTION_TSIZE, has_transfer_size, transfer_size, 0, -1, 0)
         else if (option == TFTP_OPTION_INVALID) {
             return TFTP_INVALID_OPTION;
         } else {
             char *value_end = tftp_test_string(end_ptr + 1, data_length_left);
-            if (value_end == NULL){
+            data_length_left -= value_end - end_ptr - 1;
+            if (value_end != NULL) {
+                start_ptr = value_end + 1;
+            } else {
                 break;
             }
-            data_length_left -= value_end - end_ptr - 1;
-            start_ptr = value_end + 1;
         }
     }
 
@@ -208,10 +218,10 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
     return TFTP_SUCCESS;
 }
 
+
 int tftp_parse_option(char *possible_option, int max_length, char **option_end_ptr) {
     char *option_start = possible_option;
     char *option_end = tftp_test_string(option_start, max_length);
-
     if (option_end == NULL) {
         return TFTP_OPTION_INVALID;
     } else {
@@ -233,7 +243,6 @@ long tftp_parse_ascii_number(char *data, int max_length, char **value_end_ptr) {
 
     char *ascii_nr_start = data;
     char *ascii_nr_end = tftp_test_string(ascii_nr_start, max_length);
-
     if (ascii_nr_end == NULL) {
         return TFTP_INVALID_OPTION;
     }
