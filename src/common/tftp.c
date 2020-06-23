@@ -173,31 +173,41 @@ int tftp_parse_packet_request(tftp_packet_request *request, const uint8_t *data,
         int option = tftp_parse_option(start_ptr, data_length_left, &end_ptr);
         data_length_left -= end_ptr - start_ptr + 1;
 
-#define DO_PARSE(opt, bool, val, min, max, defvalue)                                            \
-    if (option == opt) {                                                                        \
-        char *value_end_ptr;                                                                    \
-        long value = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);    \
-        data_length_left -= value_end_ptr - end_ptr - 1;                                        \
-        if (value_end_ptr != NULL){                                                             \
-            start_ptr = value_end_ptr + 1;                                                      \
-        } else {                                                                                \
-            break;                                                                              \
-        }                                                                                       \
-        if (value != TFTP_INVALID_NUMBER){                                                      \
-          if (value >= min && (value <= max || max == -1)) {                                    \
-            request->bool = 1;                                                                  \
-            request->val = value;                                                               \
-            }                                                                                   \
-        } else {                                                                                \
-            request->bool = 1;                                                                  \
-            request-> val = defvalue;                                                           \
-        }                                                                                       \
-    }
+        /*
+         * Parse an option.
+         * If the value provided for this option has no valid ending, ignore it and the options following it
+         * If the value provided for this option is invalid or out of range, set it to the default value specified
+         * If the
+         * opt      The option to check for
+         * bool     The boolean field that indicates if this option is set or not in the tftp_packet_request struct
+         * val      The value field that indicates the value of this option in the tftp_packet_request struct
+         * min      The minimum allowed value for this option
+         * max      The maximum allowed value for this option
+         * defvalue The default value of this option
+         */
+#define DO_PARSE(opt, bool, val, min, max, defvalue)                                                \
+        if (option == opt) {                                                                        \
+            char *value_end_ptr;                                                                    \
+            long value = tftp_parse_ascii_number(end_ptr + 1, data_length_left, &value_end_ptr);    \
+            data_length_left -= value_end_ptr - end_ptr - 1;                                        \
+            if (value_end_ptr != NULL){                                                             \
+                start_ptr = value_end_ptr + 1;                                                      \
+            } else {                                                                                \
+                break;                                                                              \
+            }                                                                                       \
+            if (value != TFTP_INVALID_NUMBER && value >= min && (value <= max || max == -1)){       \
+              request->bool = 1;                                                                    \
+              request->val = value;                                                                 \
+            } else {                                                                                \
+                request->bool = 1;                                                                  \
+                request-> val = defvalue;                                                           \
+            }                                                                                       \
+        }
 
         DO_PARSE(TFTP_OPTION_TIMEOUT, has_timeout, timeout, 1, 255, 5)
         else DO_PARSE(TFTP_OPTION_BLOCKSIZE, has_block_size, block_size, 8, 65464, 512)
         else DO_PARSE(TFTP_OPTION_WINDOW_SIZE, has_window_size, window_size, 1, 65535, 4)
-        else DO_PARSE(TFTP_OPTION_TSIZE, has_transfer_size, transfer_size, 0, -1, 0)
+        else DO_PARSE(TFTP_OPTION_TSIZE, has_transfer_size, transfer_size, 0, 1, 0)
         else if (option == TFTP_OPTION_INVALID) {
             return TFTP_INVALID_OPTION;
         } else {
@@ -351,8 +361,8 @@ int tftp_send_data(tftp_transmission *transmission, tftp_packet_data *data, int 
     *(start_ptr++) = TFTP_OPCODE_DATA >> 8u;
     *(start_ptr++) = TFTP_OPCODE_DATA & 0xffu;
 
-    *(start_ptr++) = data->block_num >> 8u & 0xFF;
-    *(start_ptr++) = data->block_num & 0xff;
+    *(start_ptr++) = data->block_num >> 8u & 0xFFu;
+    *(start_ptr++) = data->block_num & 0xFFu;
 
     if (copy_buffer) {
         memcpy(start_ptr, data->buffer, data_size);
