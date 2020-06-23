@@ -1,1 +1,1 @@
-An implementation of a TFTP server in C, with support for TFTP extensions in the future
+An implementation of a TFTP server in C, with support for most TFTP extensions
