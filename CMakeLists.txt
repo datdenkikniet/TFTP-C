@@ -7,3 +7,7 @@ find_package(Threads REQUIRED)
 
 add_executable(tftpserver src/common/tftp.c src/common/tftp.h src/server/main.c)
 target_link_libraries(tftpserver pthread)
+
+project(tftpserver-tests C)
+
+add_executable(tftpserver-tests src/common/tftp.c src/common/tftp.h src/server/tests.c)
