@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
                             inet_ntoa(client.sin_addr),
                             ntohs(client.sin_port), request_packet.opcode, request_packet.filename,
                             request_packet.mode);
-                if (tftp_request_has_options(request_packet)) {
+                if (tftp_request_has_options(&request_packet)) {
                     log_message(LOG_DEBUG, "Options:\n");
                     if (request_packet.has_block_size) {
                         log_message(LOG_DEBUG, "\tBlock size: %d\n", request_packet.block_size);
@@ -179,7 +179,7 @@ int main(int argc, char **argv) {
                         log_message(LOG_DEBUG, "\tTimeout: %d\n", request_packet.timeout);
                     }
                     if (request_packet.has_transfer_size) {
-                        log_message(LOG_DEBUG, "\tTransfer size: %d\n", request_packet.transfer_size);
+                        log_message(LOG_DEBUG, "\tTransfer size: %li\n", request_packet.transfer_size);
                     }
                 }
                 tftp_transmission transmission = tftp_create_transmission(request_packet.block_size);
@@ -292,7 +292,7 @@ void handle_read_request(tftp_transmission transmission) {
     tftp_packet_ack ack = tftp_create_packet_ack();
     tftp_packet_error recv_error = tftp_create_packet_error();
 
-    if (tftp_request_has_options(transmission.request)) {
+    if (tftp_request_has_options(&transmission.request)) {
         struct stat stats;
         fstat(file_descriptor, &stats);
 
@@ -317,7 +317,7 @@ void handle_read_request(tftp_transmission transmission) {
             log_message(LOG_TRACE, "\tTimeout: %d\n", optionack.timeout);
         }
         if (optionack.has_transfer_size) {
-            log_message(LOG_TRACE, "\tTransfer size: %d\n", optionack.transfer_size);
+            log_message(LOG_TRACE, "\tTransfer size: %li\n", optionack.transfer_size);
 
         }
         int receive = tftp_receive_ack(&transmission, &ack, &recv_error);

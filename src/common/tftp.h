@@ -180,7 +180,7 @@ long tftp_parse_ascii_number(char *start, int max_length, char **value_end_ptr);
 
 long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long value);
 
-int tftp_request_has_options(tftp_packet_request request);
+int tftp_request_has_options(const tftp_packet_request *request);
 
 int tftp_set_error_message(tftp_packet_error *error, const char *message);
 

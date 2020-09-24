@@ -268,7 +268,7 @@ long tftp_write_number_option(uint8_t *start_ptr, const char *option_name, long 
     uint8_t *end_ptr = start_ptr;
     strcpy(end_ptr, option_name);
     end_ptr += strlen(option_name) + 1;
-    int printed = sprintf(end_ptr, "%d", value);
+    int printed = sprintf(end_ptr, "%li", value);
     end_ptr += printed + 1;
     return end_ptr - start_ptr;
 }
@@ -317,8 +317,8 @@ int tftp_send_error(tftp_transmission *transmission, tftp_packet_error *error, i
     return 0;
 }
 
-int tftp_request_has_options(tftp_packet_request request) {
-    return request.has_block_size || request.has_timeout || request.has_window_size || request.has_transfer_size;
+int tftp_request_has_options(const tftp_packet_request *request) {
+    return request->has_block_size || request->has_timeout || request->has_window_size || request->has_transfer_size;
 }
 
 int tftp_send_oack(tftp_transmission *transmission, tftp_packet_optionack optionack) {
