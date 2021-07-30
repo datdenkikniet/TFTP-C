@@ -1,0 +1,20 @@
+---
+kind: pipeline
+type: docker
+name: default
+
+steps:
+  - name: test
+    image: ubuntu:18.04
+    commands:
+    - echo hello
+
+  - name: build-server
+    image: gcc:4.9
+    commands:
+    - gcc -o test src/common/tftp.h srcc/common/tftp.c src/server/main.c
+  
+  - name: fail
+    image: ubuntu:18.04
+    commands:
+    - exit 1
